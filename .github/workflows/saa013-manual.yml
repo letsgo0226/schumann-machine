@@ -1,0 +1,27 @@
+name: SAA-013 bounded manual research
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: saa013-manual
+  cancel-in-progress: false
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile
+        run: python -m py_compile saa013.py
+      - name: Bounded experiment
+        run: python saa013.py --checkpoint research/checkpoint.json
+      - name: Upload temporary checkpoint
+        uses: actions/upload-artifact@v4
+        with:
+          name: saa013-checkpoint
+          path: research/checkpoint.json
+          retention-days: 1
