@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: schumann-saa012-free-preview
+    runtime: python
+    plan: free
+    region: singapore
+    autoDeploy: false
+    buildCommand: python -m py_compile server.py
+    startCommand: python server.py
+    healthCheckPath: /health
