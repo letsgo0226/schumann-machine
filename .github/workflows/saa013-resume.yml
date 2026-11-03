@@ -1,0 +1,51 @@
+name: SAA-013 manual resume from artifact
+on:
+  workflow_dispatch:
+    inputs:
+      previous_run_id:
+        description: "Successful prior run ID containing saa013-checkpoint"
+        required: true
+        type: string
+permissions:
+  actions: read
+  contents: read
+concurrency:
+  group: saa013-resume
+  cancel-in-progress: false
+jobs:
+  resume:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Retrieve prior checkpoint
+        uses: actions/download-artifact@v4
+        with:
+          name: saa013-checkpoint
+          run-id: ${{ inputs.previous_run_id }}
+          github-token: ${{ github.token }}
+          path: research
+      - name: Verify prior checkpoint and run next bounded round
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from saa013 import load, run
+          path=Path("research/checkpoint.json")
+          before=load(path)
+          assert before["next_round"] >= 1, "missing previous round"
+          run(path)
+          after=load(path)
+          assert after["next_round"] == before["next_round"] + 1
+          print(json.dumps({"previous_round":before["next_round"],"next_round":after["next_round"]}))
+          PY
+      - name: Upload successor checkpoint
+        uses: actions/upload-artifact@v4
+        with:
+          name: saa013-checkpoint
+          path: research/checkpoint.json
+          retention-days: 7
+          if-no-files-found: error
