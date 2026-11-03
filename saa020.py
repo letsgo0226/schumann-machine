@@ -1,5 +1,4 @@
 """SAA-020: self-source encoding and bounded essence/execution alignment."""
-import hashlib
 import json
 from functools import reduce
 from pathlib import Path
@@ -46,9 +45,9 @@ def verify(source):
     return {
         'experiment': 'SAA-020',
         'encoded_object': 'exact saa020.py source bytes',
-        'source_sha256': hashlib.sha256(source).hexdigest(),
         'source_bytes': len(source),
         'godel_bit_length': code.bit_length(),
+        'source_identity_method': 'reversible_base257_godel_encoding',
         'source_roundtrip': True,
         'transition_equivalence': 'verified_on_18_bounded_states',
         'trace_equivalence': 'verified_for_12_steps',
