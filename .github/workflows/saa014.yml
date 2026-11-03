@@ -1,0 +1,42 @@
+name: SAA-014 bounded non-repeating research
+on:
+  workflow_dispatch:
+    inputs:
+      previous_run_id:
+        description: "Optional previous successful SAA-014 run ID"
+        required: false
+        type: string
+permissions:
+  actions: read
+  contents: read
+concurrency:
+  group: saa014-manual
+  cancel-in-progress: false
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download previous checkpoint
+        if: ${{ inputs.previous_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: saa014-checkpoint
+          run-id: ${{ inputs.previous_run_id }}
+          github-token: ${{ github.token }}
+          path: research
+      - name: Validate and run one new finite task
+        run: |
+          python -m py_compile saa014.py
+          python saa014.py --checkpoint research/saa014.json
+      - name: Upload checkpoint
+        uses: actions/upload-artifact@v4
+        with:
+          name: saa014-checkpoint
+          path: research/saa014.json
+          if-no-files-found: error
+          retention-days: 7
