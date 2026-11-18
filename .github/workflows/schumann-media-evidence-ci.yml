@@ -23,12 +23,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Check local FFmpeg tools
+      - name: Install FFmpeg for local synthetic media tests
         shell: bash
         run: |
           set -euo pipefail
-          ffmpeg -version | head -1
-          ffprobe -version | head -1
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffmpeg -version | sed -n '1p'
+          ffprobe -version | sed -n '1p'
       - name: Reject silence, black frames and altered reports
         shell: bash
         run: python3 -m unittest discover -s scripts -p 'test_cvoc_media_evidence.py' -v
