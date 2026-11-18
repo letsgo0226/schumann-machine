@@ -6,6 +6,7 @@ Chromium under Xvfb, records the display and PulseAudio sink to MP4.
 No URLs, course content, passwords, tokens, cookies, or sign-in are accepted.
 """
 import argparse
+import base64
 import hashlib
 import os
 from pathlib import Path
@@ -57,7 +58,10 @@ def probe(output, video_only=False, chrome_path=None):
                       "--window-position=0,0","--window-size=960,540"])
             try:
                 page=browser.new_page(viewport={"width":900,"height":490})
-                page.goto((folder/"index.html").as_uri(), wait_until="networkidle")
+                html = (folder / "index.html").read_text(encoding="utf-8")
+                media = base64.b64encode((folder / "sample.webm").read_bytes()).decode("ascii")
+                html = html.replace('src="sample.webm"', f'src="data:video/webm;base64,{media}"')
+                page.set_content(html, wait_until="load")
                 page.wait_for_function("document.querySelector('video').readyState >= 2", timeout=15000)
                 command=["ffmpeg","-hide_banner","-loglevel","error","-y",
                          "-thread_queue_size","1024","-f","x11grab",
