@@ -58,19 +58,38 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install local media tools
+      - name: Install pinned FFmpeg binaries from verified Python wheel
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
-            export DEBIAN_FRONTEND=noninteractive
-            timeout 150 sudo -E apt-get \
-              -o Acquire::Retries=1 \
-              -o Acquire::http::Timeout=20 \
-              install -y --no-install-recommends ffmpeg
-          fi
-          command -v ffmpeg
-          command -v ffprobe
+          # Avoid stalled Ubuntu apt mirrors. This is a synthetic-only, unprivileged CI dependency.
+          # Wheel SHA-256 from the published PyPI 1.1.0 Linux x86-64 distribution.
+          mkdir -p "$RUNNER_TEMP/ffmpeg-wheels"
+          python -m pip download --no-deps --only-binary=:all: --disable-pip-version-check \
+            --dest "$RUNNER_TEMP/ffmpeg-wheels" 'ffmpeg-binaries==1.1.0'
+          echo "b8a6d67f5895a8a105e25746db3bb3a4d6b76629cde22814f9866fd9af76a399  $RUNNER_TEMP/ffmpeg-wheels/ffmpeg_binaries-1.1.0-py3-none-manylinux1_x86_64.whl" | sha256sum --check --status
+          python -m pip install --no-deps --no-index --disable-pip-version-check \
+            "$RUNNER_TEMP/ffmpeg-wheels/ffmpeg_binaries-1.1.0-py3-none-manylinux1_x86_64.whl"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+          import ffmpeg
+          ffmpeg_bin = ffmpeg.FFMPEG_PATH
+          ffprobe_bin = ffmpeg.FFPROBE_PATH
+          if not ffmpeg_bin or not ffprobe_bin:
+              raise SystemExit("Pinned package has no bundled FFmpeg/FFprobe executables")
+          ffmpeg_bin, ffprobe_bin = Path(ffmpeg_bin), Path(ffprobe_bin)
+          if not (ffmpeg_bin.is_file() and ffprobe_bin.is_file()
+                  and ffmpeg_bin.parent == ffprobe_bin.parent):
+              raise SystemExit("FFmpeg bundle missing required executables")
+          for binary in (ffmpeg_bin, ffprobe_bin):
+              subprocess.run([str(binary), "-version"], check=True,
+                             stdout=subprocess.DEVNULL, timeout=20)
+          with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as fh:
+              fh.write(str(ffmpeg_bin.parent) + "\n")
+          print("PINNED_MEDIA_BINARIES_VERIFIED")
+          PY
       - name: Verify strict operator contract and existing media guard
         shell: bash
         run: |
