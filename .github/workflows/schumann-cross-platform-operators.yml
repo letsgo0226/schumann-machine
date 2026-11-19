@@ -68,26 +68,31 @@ jobs:
           python -m pip download --no-deps --only-binary=:all: --disable-pip-version-check \
             --dest "$RUNNER_TEMP/ffmpeg-wheels" 'ffmpeg-binaries==1.1.0'
           echo "b8a6d67f5895a8a105e25746db3bb3a4d6b76629cde22814f9866fd9af76a399  $RUNNER_TEMP/ffmpeg-wheels/ffmpeg_binaries-1.1.0-py3-none-manylinux1_x86_64.whl" | sha256sum --check --status
-          python -m pip install --no-deps --no-index --disable-pip-version-check \
-            "$RUNNER_TEMP/ffmpeg-wheels/ffmpeg_binaries-1.1.0-py3-none-manylinux1_x86_64.whl"
+          # Extract exactly the two verified native binaries; do NOT import
+          # third-party Python initialization/download code or install its dependencies.
           python - <<'PY'
           import os
           from pathlib import Path
+          import shutil
           import subprocess
-          import ffmpeg
-          ffmpeg_bin = ffmpeg.FFMPEG_PATH
-          ffprobe_bin = ffmpeg.FFPROBE_PATH
-          if not ffmpeg_bin or not ffprobe_bin:
-              raise SystemExit("Pinned package has no bundled FFmpeg/FFprobe executables")
-          ffmpeg_bin, ffprobe_bin = Path(ffmpeg_bin), Path(ffprobe_bin)
-          if not (ffmpeg_bin.is_file() and ffprobe_bin.is_file()
-                  and ffmpeg_bin.parent == ffprobe_bin.parent):
-              raise SystemExit("FFmpeg bundle missing required executables")
-          for binary in (ffmpeg_bin, ffprobe_bin):
-              subprocess.run([str(binary), "-version"], check=True,
-                             stdout=subprocess.DEVNULL, timeout=20)
+          import zipfile
+          wheel = Path(os.environ["RUNNER_TEMP"]) / "ffmpeg-wheels" / "ffmpeg_binaries-1.1.0-py3-none-manylinux1_x86_64.whl"
+          out = Path(os.environ["RUNNER_TEMP"]) / "schumann-ffmpeg-bin"
+          out.mkdir(parents=True, exist_ok=False)
+          with zipfile.ZipFile(wheel) as archive:
+              for name in ("ffmpeg", "ffprobe"):
+                  matching = [p for p in archive.namelist()
+                              if p.endswith("/binaries/" + name)]
+                  if len(matching) != 1:
+                      raise SystemExit("Expected exactly one bundled " + name)
+                  path = out / name
+                  with archive.open(matching[0]) as inp, path.open("xb") as dst:
+                      shutil.copyfileobj(inp, dst)
+                  path.chmod(0o700)
+                  subprocess.run([str(path), "-version"], check=True,
+                                 stdout=subprocess.DEVNULL, timeout=20)
           with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as fh:
-              fh.write(str(ffmpeg_bin.parent) + "\n")
+              fh.write(str(out) + "\n")
           print("PINNED_MEDIA_BINARIES_VERIFIED")
           PY
       - name: Verify strict operator contract and existing media guard
