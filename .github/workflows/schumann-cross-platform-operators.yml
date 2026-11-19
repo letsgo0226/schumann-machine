@@ -1,0 +1,89 @@
+name: Schumann external operators — Windows and Linux prototypes
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/operator_contract.py'
+      - 'scripts/operator_windows_probe.py'
+      - 'scripts/operator_linux_media_probe.py'
+      - 'scripts/test_operator_contract.py'
+      - 'scripts/cvoc_media_evidence.py'
+      - '.github/workflows/schumann-cross-platform-operators.yml'
+      - 'README_OPERATOR_PROTOTYPES.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schumann-operators-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-capability-probe:
+    runs-on: windows-2025
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify strict task/report contract on Windows
+        shell: pwsh
+        run: python -m unittest discover -s scripts -p 'test_operator_contract.py' -v
+      - name: Probe available Windows capabilities (no application launch)
+        shell: pwsh
+        run: |
+          python scripts/operator_windows_probe.py --output-dir artifacts/windows_operator
+          python scripts/operator_contract.py artifacts/windows_operator/request.json artifacts/windows_operator/report.json
+      - name: Save non-sensitive Windows JSON report
+        uses: actions/upload-artifact@v4
+        with:
+          name: schumann-windows-operator-prototype
+          path: |
+            artifacts/windows_operator/request.json
+            artifacts/windows_operator/report.json
+          if-no-files-found: error
+          retention-days: 1
+
+  linux-synthetic-media-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install local media tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 180 sudo apt-get update -qq
+          timeout 180 sudo apt-get install -y -qq ffmpeg
+          command -v ffmpeg
+          command -v ffprobe
+      - name: Verify strict operator contract and existing media guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s scripts -p 'test_operator_contract.py' -v
+          python -m unittest discover -s scripts -p 'test_cvoc_media_evidence.py' -v
+      - name: Record locally generated synthetic MP4 and verify technical metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/operator_linux_media_probe.py --output-dir artifacts/linux_operator
+          python scripts/operator_contract.py artifacts/linux_operator/request.json artifacts/linux_operator/report.json
+      - name: Upload JSON evidence only (never a school recording)
+        uses: actions/upload-artifact@v4
+        with:
+          name: schumann-linux-operator-prototype
+          path: |
+            artifacts/linux_operator/request.json
+            artifacts/linux_operator/report.json
+          if-no-files-found: error
+          retention-days: 1
