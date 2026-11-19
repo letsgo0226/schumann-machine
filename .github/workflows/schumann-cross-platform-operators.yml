@@ -1,0 +1,118 @@
+name: Schumann external operators — Windows and Linux prototypes
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/operator_contract.py'
+      - 'scripts/operator_windows_probe.py'
+      - 'scripts/operator_linux_media_probe.py'
+      - 'scripts/test_operator_contract.py'
+      - 'scripts/cvoc_media_evidence.py'
+      - '.github/workflows/schumann-cross-platform-operators.yml'
+      - 'README_OPERATOR_PROTOTYPES.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schumann-operators-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-capability-probe:
+    runs-on: windows-2025
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify strict task/report contract on Windows
+        shell: pwsh
+        run: python -m unittest discover -s scripts -p 'test_operator_contract.py' -v
+      - name: Probe available Windows capabilities (no application launch)
+        shell: pwsh
+        run: |
+          python scripts/operator_windows_probe.py --output-dir artifacts/windows_operator
+          python scripts/operator_contract.py artifacts/windows_operator/request.json artifacts/windows_operator/report.json
+      - name: Save non-sensitive Windows JSON report
+        uses: actions/upload-artifact@v4
+        with:
+          name: schumann-windows-operator-prototype
+          path: |
+            artifacts/windows_operator/request.json
+            artifacts/windows_operator/report.json
+          if-no-files-found: error
+          retention-days: 1
+
+  linux-synthetic-media-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned FFmpeg binaries from verified Python wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Avoid stalled Ubuntu apt mirrors. This is a synthetic-only, unprivileged CI dependency.
+          # Wheel SHA-256 from the published PyPI 1.1.0 Linux x86-64 distribution.
+          mkdir -p "$RUNNER_TEMP/ffmpeg-wheels"
+          python -m pip download --no-deps --only-binary=:all: --disable-pip-version-check \
+            --dest "$RUNNER_TEMP/ffmpeg-wheels" 'ffmpeg-binaries==1.1.0'
+          echo "b8a6d67f5895a8a105e25746db3bb3a4d6b76629cde22814f9866fd9af76a399  $RUNNER_TEMP/ffmpeg-wheels/ffmpeg_binaries-1.1.0-py3-none-manylinux1_x86_64.whl" | sha256sum --check --status
+          # Extract exactly the two verified native binaries; do NOT import
+          # third-party Python initialization/download code or install its dependencies.
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import shutil
+          import subprocess
+          import zipfile
+          wheel = Path(os.environ["RUNNER_TEMP"]) / "ffmpeg-wheels" / "ffmpeg_binaries-1.1.0-py3-none-manylinux1_x86_64.whl"
+          out = Path(os.environ["RUNNER_TEMP"]) / "schumann-ffmpeg-bin"
+          out.mkdir(parents=True, exist_ok=False)
+          with zipfile.ZipFile(wheel) as archive:
+              for name in ("ffmpeg", "ffprobe"):
+                  matching = [p for p in archive.namelist()
+                              if p.endswith("/binaries/" + name)]
+                  if len(matching) != 1:
+                      raise SystemExit("Expected exactly one bundled " + name)
+                  path = out / name
+                  with archive.open(matching[0]) as inp, path.open("xb") as dst:
+                      shutil.copyfileobj(inp, dst)
+                  path.chmod(0o700)
+                  subprocess.run([str(path), "-version"], check=True,
+                                 stdout=subprocess.DEVNULL, timeout=20)
+          with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as fh:
+              fh.write(str(out) + "\n")
+          print("PINNED_MEDIA_BINARIES_VERIFIED")
+          PY
+      - name: Verify strict operator contract and existing media guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s scripts -p 'test_operator_contract.py' -v
+          python -m unittest discover -s scripts -p 'test_cvoc_media_evidence.py' -v
+      - name: Record locally generated synthetic MP4 and verify technical metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/operator_linux_media_probe.py --output-dir artifacts/linux_operator
+          python scripts/operator_contract.py artifacts/linux_operator/request.json artifacts/linux_operator/report.json
+      - name: Upload JSON evidence only (never a school recording)
+        uses: actions/upload-artifact@v4
+        with:
+          name: schumann-linux-operator-prototype
+          path: |
+            artifacts/linux_operator/request.json
+            artifacts/linux_operator/report.json
+          if-no-files-found: error
+          retention-days: 1
