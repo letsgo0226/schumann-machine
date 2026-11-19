@@ -62,8 +62,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          timeout 180 sudo apt-get update -qq
-          timeout 180 sudo apt-get install -y -qq ffmpeg
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            export DEBIAN_FRONTEND=noninteractive
+            timeout 150 sudo -E apt-get \
+              -o Acquire::Retries=1 \
+              -o Acquire::http::Timeout=20 \
+              install -y --no-install-recommends ffmpeg
+          fi
           command -v ffmpeg
           command -v ffprobe
       - name: Verify strict operator contract and existing media guard
